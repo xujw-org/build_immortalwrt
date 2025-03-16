@@ -18,10 +18,10 @@ print_info() {
 
 # 主机名和网络配置
 HOSTNAME="ImmortalWrt"
-IP_ADDR="192.168.1.1"
+IP_ADDR="10.1.1.3"
 NETMASK="255.255.255.0"
-GATEWAY="192.168.1.1"
-DNS="223.5.5.5 223.6.6.6"
+GATEWAY="10.1.1.1"
+DNS="127.0.0.1"
 ENABLE_DHCP="y"
 ENABLE_IPV6="y"
 
@@ -35,9 +35,8 @@ add_package_feeds() {
     # 添加常用的第三方仓库
     cat >> feeds.conf.default <<EOF
 # 第三方软件包
-src-git lienol https://github.com/Lienol/openwrt-package.git;master
-src-git passwall https://github.com/xiaorouji/openwrt-passwall.git;main
-src-git passwallpackages https://github.com/xiaorouji/openwrt-passwall-packages.git;main
+src-git immortalwrt https://github.com/immortalwrt/packages.git;master
+src-git smpackage https://github.com/kenzok8/small-package.git;main
 src-git helloworld https://github.com/fw876/helloworld.git
 src-git openclash https://github.com/vernesong/OpenClash.git
 src-git luci-theme-argon https://github.com/jerrykuku/luci-theme-argon.git
@@ -163,7 +162,7 @@ apply_common_configs() {
     # 添加常用配置
     cat >> .config <<EOF
 # 使用最新内核版本
-CONFIG_LINUX_5_15=y
+CONFIG_LINUX_6_6=y
 
 # 基本系统
 CONFIG_PACKAGE_dnsmasq-full=y
@@ -174,9 +173,9 @@ CONFIG_PACKAGE_ip-full=y
 # 网络工具
 CONFIG_PACKAGE_tcpdump=y
 CONFIG_PACKAGE_ipset=y
-CONFIG_PACKAGE_iptables-mod-extra=y
-CONFIG_PACKAGE_iptables-mod-tproxy=y
-CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
+# CONFIG_PACKAGE_iptables-mod-extra=y
+# CONFIG_PACKAGE_iptables-mod-tproxy=y
+# CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
 
 # SSH和Web服务
 CONFIG_PACKAGE_openssh-sftp-server=y
@@ -186,15 +185,15 @@ CONFIG_PACKAGE_nginx=y
 
 # 常用应用
 CONFIG_PACKAGE_luci-app-ttyd=y
-CONFIG_PACKAGE_luci-app-openclash=y
-CONFIG_PACKAGE_luci-app-passwall=y
-CONFIG_PACKAGE_luci-app-passwall2=y
-CONFIG_PACKAGE_luci-app-ssr-plus=y
+# CONFIG_PACKAGE_luci-app-openclash=y
+# CONFIG_PACKAGE_luci-app-passwall=y
+# CONFIG_PACKAGE_luci-app-passwall2=y
+# CONFIG_PACKAGE_luci-app-ssr-plus=y
 CONFIG_PACKAGE_luci-app-filetransfer=y
-CONFIG_PACKAGE_luci-app-firewall=y
+# CONFIG_PACKAGE_luci-app-firewall=y
 CONFIG_PACKAGE_luci-app-nlbwmon=y
 CONFIG_PACKAGE_luci-app-upnp=y
-CONFIG_PACKAGE_luci-app-wol=y
+# CONFIG_PACKAGE_luci-app-wol=y
 CONFIG_PACKAGE_luci-app-ddns=y
 CONFIG_PACKAGE_luci-app-statistics=y
 CONFIG_PACKAGE_luci-app-watchcat=y
@@ -216,10 +215,10 @@ CONFIG_PACKAGE_kmod-fs-exfat=y
 CONFIG_PACKAGE_kmod-fs-vfat=y
 
 # USB支持
-CONFIG_PACKAGE_kmod-usb-core=y
-CONFIG_PACKAGE_kmod-usb-storage=y
-CONFIG_PACKAGE_kmod-usb-storage-extras=y
-CONFIG_PACKAGE_kmod-usb3=y
+# CONFIG_PACKAGE_kmod-usb-core=y
+# CONFIG_PACKAGE_kmod-usb-storage=y
+# CONFIG_PACKAGE_kmod-usb-storage-extras=y
+# CONFIG_PACKAGE_kmod-usb3=y
 
 # IPv6支持
 CONFIG_PACKAGE_ipv6helper=y
@@ -234,10 +233,7 @@ CONFIG_PACKAGE_odhcpd-ipv6only=y
 CONFIG_PACKAGE_htop=y
 CONFIG_PACKAGE_iperf3=y
 CONFIG_PACKAGE_luci-app-adguardhome=y
-CONFIG_PACKAGE_luci-app-unblockmusic=y
 CONFIG_PACKAGE_luci-app-smartdns=y
-CONFIG_PACKAGE_luci-app-zerotier=y
-CONFIG_PACKAGE_luci-app-docker=y
 EOF
 }
 
