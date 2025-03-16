@@ -36,7 +36,7 @@ add_package_feeds() {
     cat >> feeds.conf.default <<EOF
 # 第三方软件包
 src-git immortalwrt https://github.com/immortalwrt/packages.git;master
-src-git smpackage https://github.com/kenzok8/small-package.git;main
+src-git smpackage https://github.com/kenzok8/small-package.git
 src-git helloworld https://github.com/fw876/helloworld.git
 src-git openclash https://github.com/vernesong/OpenClash.git
 src-git luci-theme-argon https://github.com/jerrykuku/luci-theme-argon.git
