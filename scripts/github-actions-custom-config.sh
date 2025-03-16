@@ -32,15 +32,20 @@ add_package_feeds() {
     # 备份原始feeds.conf.default
     cp feeds.conf.default feeds.conf.default.backup
     
-    # 添加常用的第三方仓库
+    # 添加常用的第三方仓库，避免重复包冲突，指定正确的分支
     cat >> feeds.conf.default <<EOF
 # 第三方软件包
-src-git immortalwrt https://github.com/immortalwrt/packages.git;master
-src-git smpackage https://github.com/kenzok8/small-package.git
-src-git helloworld https://github.com/fw876/helloworld.git
-src-git openclash https://github.com/vernesong/OpenClash.git
-src-git luci-theme-argon https://github.com/jerrykuku/luci-theme-argon.git
-src-git luci-app-argon-config https://github.com/jerrykuku/luci-app-argon-config.git
+src-git immortalwrt https://github.com/immortalwrt/packages.git;openwrt-23.05
+src-git smpackage https://github.com/kenzok8/small-package.git;main
+src-git helloworld https://github.com/fw876/helloworld.git;master
+src-git openclash https://github.com/vernesong/OpenClash.git;master
+EOF
+    
+    # 单独添加主题，防止冲突
+    cat >> feeds.conf.default <<EOF
+# 主题包
+src-git argon https://github.com/jerrykuku/luci-theme-argon.git;master
+src-git argon_config https://github.com/jerrykuku/luci-app-argon-config.git;master
 EOF
     
     print_info "更新软件包列表..."
@@ -82,7 +87,7 @@ config interface 'lan'
 	option broadcast '${IP_ADDR%.*}.255'
 EOF
     
-    # 配置DHCP
+    # 配置DHCP，修复IPv6相关设置
     if [[ "$ENABLE_DHCP" == "y" ]]; then
         cat > files/etc/config/dhcp <<EOF
 config dnsmasq
@@ -103,6 +108,11 @@ config dnsmasq
 	option nonwildcard '1'
 	option localservice '1'
 	option noresolv '0'
+EOF
+
+        # 根据IPv6状态添加适当的DHCPv6配置
+        if [[ "$ENABLE_IPV6" == "y" ]]; then
+            cat >> files/etc/config/dhcp <<EOF
 
 config dhcp 'lan'
 	option interface 'lan'
@@ -112,7 +122,21 @@ config dhcp 'lan'
 	option dhcpv6 'server'
 	option ra 'server'
 	option ra_management '1'
+	option ra_default '1'
+	option ndp 'hybrid'
 EOF
+        else
+            cat >> files/etc/config/dhcp <<EOF
+
+config dhcp 'lan'
+	option interface 'lan'
+	option start '100'
+	option limit '150'
+	option leasetime '12h'
+	option dhcpv6 'disabled'
+	option ra 'disabled'
+EOF
+        fi
     fi
     
     # 配置IPv6
@@ -126,19 +150,22 @@ EOF
     fi
 }
 
-# 创建首次免密登录配置
+# 创建首次免密登录配置，使用随机生成的密码
 configure_passwordless_login() {
     print_info "配置首次免密登录..."
     
     mkdir -p files/etc/uci-defaults/
     
-    # 创建uci-defaults脚本
+    # 生成随机密码
+    RANDOM_PASSWORD=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 12)
+    
+    # 创建uci-defaults脚本，使用变量而非硬编码密码
     cat > files/etc/uci-defaults/99-passwordless <<EOF
 #!/bin/sh
 
 # 设置首次免密登录
 uci set rpcd.@login[0].username='root'
-uci set rpcd.@login[0].password='lWSJlBq'  # 随机密码，会在运行后首次使用RPCs被重置
+uci set rpcd.@login[0].password='$RANDOM_PASSWORD'  # 随机密码，会在运行后首次使用RPCs被重置
 uci commit rpcd
 
 # 设置ttyd免密登录
@@ -159,7 +186,7 @@ apply_common_configs() {
     # 确保 .config 存在
     touch .config
     
-    # 添加常用配置
+    # 添加常用配置，修正依赖关系
     cat >> .config <<EOF
 # 使用最新内核版本
 CONFIG_LINUX_6_6=y
@@ -173,9 +200,9 @@ CONFIG_PACKAGE_ip-full=y
 # 网络工具
 CONFIG_PACKAGE_tcpdump=y
 CONFIG_PACKAGE_ipset=y
-# CONFIG_PACKAGE_iptables-mod-extra=y
-# CONFIG_PACKAGE_iptables-mod-tproxy=y
-# CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
+CONFIG_PACKAGE_iptables-mod-extra=y
+CONFIG_PACKAGE_iptables-mod-tproxy=y
+CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
 
 # SSH和Web服务
 CONFIG_PACKAGE_openssh-sftp-server=y
@@ -185,15 +212,10 @@ CONFIG_PACKAGE_nginx=y
 
 # 常用应用
 CONFIG_PACKAGE_luci-app-ttyd=y
-# CONFIG_PACKAGE_luci-app-openclash=y
-# CONFIG_PACKAGE_luci-app-passwall=y
-# CONFIG_PACKAGE_luci-app-passwall2=y
-# CONFIG_PACKAGE_luci-app-ssr-plus=y
 CONFIG_PACKAGE_luci-app-filetransfer=y
-# CONFIG_PACKAGE_luci-app-firewall=y
+CONFIG_PACKAGE_luci-app-firewall=y
 CONFIG_PACKAGE_luci-app-nlbwmon=y
 CONFIG_PACKAGE_luci-app-upnp=y
-# CONFIG_PACKAGE_luci-app-wol=y
 CONFIG_PACKAGE_luci-app-ddns=y
 CONFIG_PACKAGE_luci-app-statistics=y
 CONFIG_PACKAGE_luci-app-watchcat=y
@@ -201,6 +223,23 @@ CONFIG_PACKAGE_luci-app-wifischedule=y
 CONFIG_PACKAGE_luci-app-mwan3=y
 CONFIG_PACKAGE_luci-app-syncdial=y
 CONFIG_PACKAGE_luci-app-webadmin=y
+
+# 添加OpenClash相关依赖
+CONFIG_PACKAGE_luci-app-openclash=y
+CONFIG_PACKAGE_coreutils=y
+CONFIG_PACKAGE_coreutils-nohup=y
+CONFIG_PACKAGE_bash=y
+CONFIG_PACKAGE_iptables=y
+CONFIG_PACKAGE_dnsmasq-full=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_ca-certificates=y
+CONFIG_PACKAGE_ipset=y
+CONFIG_PACKAGE_ip-full=y
+CONFIG_PACKAGE_iptables-mod-tproxy=y
+CONFIG_PACKAGE_iptables-mod-extra=y
+CONFIG_PACKAGE_libcap=y
+CONFIG_PACKAGE_ruby=y
+CONFIG_PACKAGE_ruby-yaml=y
 
 # 主题
 CONFIG_PACKAGE_luci-theme-argon=y
@@ -214,7 +253,7 @@ CONFIG_PACKAGE_kmod-fs-ntfs=y
 CONFIG_PACKAGE_kmod-fs-exfat=y
 CONFIG_PACKAGE_kmod-fs-vfat=y
 
-# USB支持
+# USB支持 - 保持注释，有需要时取消注释
 # CONFIG_PACKAGE_kmod-usb-core=y
 # CONFIG_PACKAGE_kmod-usb-storage=y
 # CONFIG_PACKAGE_kmod-usb-storage-extras=y
