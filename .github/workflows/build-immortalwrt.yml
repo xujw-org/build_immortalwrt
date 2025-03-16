@@ -1,0 +1,173 @@
+name: Build ImmortalWrt
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
+      config_file:
+        description: 'Config file to use (located in config/ directory)'
+        required: false
+        default: 'config.seed'
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: master
+  CONFIG_FILE: ${{ github.event.inputs.config_file }}
+  FREE_UP_DISK: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    # 移除条件检查，允许任何人触发工作流
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@main
+      with:
+        token: ${{ secrets.REPO_TOKEN }}
+        fetch-depth: 0
+
+    - name: Check server configuration
+      run: |
+        echo "CPU cores: $(nproc)"
+        echo "Memory: $(free -h | grep Mem | awk '{print $2}')"
+        echo "Disk: $(df -h | grep -E '/dev/[a-z]' | head -n 1 | awk '{print $4}' | sed 's/G//')"
+        echo "------------------------"
+
+    - name: Free up disk space
+      if: env.FREE_UP_DISK == 'true'
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell openjdk* adoptopenjdk* mysql* php* mongodb* dotnet* moby* snapd* || true
+        echo "------------------------"
+        df -h
+
+    - name: Initialize environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo timedatectl set-timezone "$TZ"
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/master/scripts/buildsystem/requirements-ubuntu.txt | tr '\n' ' ')
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        
+        # Fix permissions for GitHub Actions
+        sudo chown -R runner:runner $GITHUB_WORKSPACE
+
+    - name: Clone source code
+      run: |
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        cd openwrt
+        echo "OPENWRT_ROOT=$PWD" >> $GITHUB_ENV
+        echo "------------------------"
+        git log --oneline -1
+
+    - name: Copy custom scripts
+      run: |
+        mkdir -p $OPENWRT_ROOT/scripts/custom
+        cp $GITHUB_WORKSPACE/scripts/*.sh $OPENWRT_ROOT/scripts/custom/ || true
+        chmod +x $OPENWRT_ROOT/scripts/custom/*.sh || true
+        ls -la $OPENWRT_ROOT/scripts/custom/ || true
+
+    - name: Apply custom configurations
+      run: |
+        cd $OPENWRT_ROOT
+        if [ -f scripts/custom/github-actions-custom-config.sh ]; then
+          bash scripts/custom/github-actions-custom-config.sh
+          echo "Custom configurations applied"
+        else
+          echo "No custom configuration script found, using default settings"
+        fi
+
+    - name: Load custom configuration
+      run: |
+        [ -d config ] || mkdir -p config
+        [ -e config/$CONFIG_FILE ] && cp config/$CONFIG_FILE $OPENWRT_ROOT/.config
+        cd $OPENWRT_ROOT
+        
+        # If config file doesn't exist, create default config
+        if [ ! -e .config ]; then
+          echo "Config file not found, using generated config..."
+          make defconfig
+        fi
+
+    - name: SSH connection to Actions
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
+    - name: Download package
+      id: package
+      run: |
+        cd $OPENWRT_ROOT
+        make defconfig
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Compile firmware
+      id: compile
+      run: |
+        cd $OPENWRT_ROOT
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=$(cat DEVICE_NAME)" >> $GITHUB_ENV
+        echo "FILE_DATE=$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+    - name: Check space usage
+      if: (!cancelled())
+      run: df -hT
+
+    - name: Upload bin directory
+      uses: actions/upload-artifact@main
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      with:
+        name: ImmortalWrt_bin_${{ env.DEVICE_NAME }}_${{ env.FILE_DATE }}
+        path: ${{ env.OPENWRT_ROOT }}/bin
+
+    - name: Organize files
+      id: organize
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        cd $OPENWRT_ROOT/bin/targets/*/*
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload firmware directory
+      uses: actions/upload-artifact@main
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: ImmortalWrt_firmware_${{ env.DEVICE_NAME }}_${{ env.FILE_DATE }}
+        path: ${{ env.FIRMWARE }}
+
+    - name: Create release
+      id: release
+      uses: ncipollo/release-action@v1
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: ImmortalWrt ${{ env.DEVICE_NAME }} ${{ env.FILE_DATE }}
+        allowUpdates: true
+        tag: ${{ env.FILE_DATE }}_${{ env.DEVICE_NAME }}
+        commit: main
+        token: ${{ secrets.REPO_TOKEN }}
+        body: |
+          ImmortalWrt firmware for ${{ env.DEVICE_NAME }}
+          Built on: ${{ env.FILE_DATE }}
+          
+          **预置功能包括:**
+          - 第三方软件包: PassWall, SSR-Plus, OpenClash等
+          - 网络工具: tcpdump, ipset, iptables扩展
+          - 网络应用: DDNS, UPnP, WOL, Firewall等
+          - 系统设置: 免密登录, ttyd终端, 自定义主题
+          - IPv6支持, USB支持, 多种文件系统支持
+        artifacts: ${{ env.FIRMWARE }}/*
