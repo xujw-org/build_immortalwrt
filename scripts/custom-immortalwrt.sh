@@ -1,29 +1,66 @@
 #!/bin/bash
 #
-# GitHub Actions自动配置脚本
-# 此脚本在GitHub Actions中自动应用自定义配置
+# ImmortalWrt 自定义配置脚本
+# 功能: 添加第三方包仓库、自定义主题和网络设置等
 #
 
 # 错误时退出
 set -e
 
 # 颜色定义
+RED='\033[0;31m'
 GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
 PLAIN='\033[0m'
 
-# 打印信息
+# 打印彩色信息
 print_info() {
     echo -e "${GREEN}[信息]${PLAIN} $1"
 }
 
-# 主机名和网络配置
-HOSTNAME="ImmortalWrt"
-IP_ADDR="192.168.1.1"
-NETMASK="255.255.255.0"
-GATEWAY="192.168.1.1"
-DNS="223.5.5.5 223.6.6.6"
-ENABLE_DHCP="y"
-ENABLE_IPV6="y"
+print_warning() {
+    echo -e "${YELLOW}[警告]${PLAIN} $1"
+}
+
+print_error() {
+    echo -e "${RED}[错误]${PLAIN} $1"
+}
+
+# 检查是否在ImmortalWrt源码目录
+check_directory() {
+    if [ ! -f "feeds.conf.default" ] || [ ! -d "package" ]; then
+        print_error "请在ImmortalWrt源码目录中运行此脚本！"
+        exit 1
+    fi
+    print_info "检测到ImmortalWrt源码目录"
+}
+
+# 从用户获取网络配置
+get_network_config() {
+    print_info "请输入网络配置 (直接回车使用默认值)"
+    
+    read -p "主机名 [ImmortalWrt]: " hostname
+    hostname=${hostname:-ImmortalWrt}
+    
+    read -p "IP地址 [192.168.1.1]: " ipaddr
+    ipaddr=${ipaddr:-192.168.1.1}
+    
+    read -p "子网掩码 [255.255.255.0]: " netmask
+    netmask=${netmask:-255.255.255.0}
+    
+    read -p "网关 [192.168.1.1]: " gateway
+    gateway=${gateway:-192.168.1.1}
+    
+    read -p "DNS服务器 [223.5.5.5 223.6.6.6]: " dns
+    dns=${dns:-"223.5.5.5 223.6.6.6"}
+    
+    read -p "启用DHCP? [y/N]: " enable_dhcp
+    enable_dhcp=${enable_dhcp:-n}
+    
+    read -p "启用IPv6? [y/N]: " enable_ipv6
+    enable_ipv6=${enable_ipv6:-n}
+}
 
 # 添加第三方软件包仓库
 add_package_feeds() {
@@ -59,7 +96,7 @@ configure_system() {
     # 配置主机名
     cat > files/etc/config/system <<EOF
 config system
-	option hostname '$HOSTNAME'
+	option hostname '$hostname'
 	option timezone 'CST-8'
 	option zonename 'Asia/Shanghai'
 EOF
@@ -76,15 +113,15 @@ config interface 'lan'
 	option type 'bridge'
 	option ifname 'eth0'
 	option proto 'static'
-	option ipaddr '$IP_ADDR'
-	option netmask '$NETMASK'
-	option gateway '$GATEWAY'
-	option dns '$DNS'
-	option broadcast '${IP_ADDR%.*}.255'
+	option ipaddr '$ipaddr'
+	option netmask '$netmask'
+	option gateway '$gateway'
+	option dns '$dns'
+	option broadcast '${ipaddr%.*}.255'
 EOF
     
     # 配置DHCP
-    if [[ "$ENABLE_DHCP" == "y" ]]; then
+    if [[ "$enable_dhcp" == "y" || "$enable_dhcp" == "Y" ]]; then
         cat > files/etc/config/dhcp <<EOF
 config dnsmasq
 	option domainneeded '1'
@@ -117,7 +154,7 @@ EOF
     fi
     
     # 配置IPv6
-    if [[ "$ENABLE_IPV6" == "y" ]]; then
+    if [[ "$enable_ipv6" == "y" || "$enable_ipv6" == "Y" ]]; then
         cat >> files/etc/config/network <<EOF
 
 config interface 'wan6'
@@ -157,7 +194,7 @@ EOF
 apply_common_configs() {
     print_info "应用常用配置..."
     
-    # 确保 .config 存在
+    # 先确保 .config 存在
     touch .config
     
     # 添加常用配置
@@ -243,15 +280,22 @@ EOF
 
 # 主函数
 main() {
-    print_info "ImmortalWrt GitHub Actions自动配置脚本"
+    clear
+    print_info "ImmortalWrt自定义配置脚本"
     print_info "----------------------------"
     
+    check_directory
+    get_network_config
     add_package_feeds
     configure_system
     configure_passwordless_login
     apply_common_configs
     
-    print_info "GitHub Actions自动配置完成！"
+    print_info "配置完成！您可以编译ImmortalWrt了。"
+    print_info "推荐使用以下命令开始编译:"
+    print_info "  make menuconfig   # 进一步定制配置"
+    print_info "  make defconfig    # 确保配置正确"
+    print_info "  make -j\$(nproc)   # 开始编译"
 }
 
 main "$@"
